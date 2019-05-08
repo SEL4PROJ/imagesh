@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+
+import os
+import getpass
+import shutil
+import subprocess
+from configparser import ConfigParser, ExtendedInterpolation
+
+USER = getpass.getuser()
+UID = os.getuid()
+GID = os.getgid()
+
+# Do we need a default if you always make a USER one?
+DEFAULT_CONFIG_DIR = "/etc/imagesh"
+DEFAULT_CONFIG_FILE = "{}/config.ini".format(DEFAULT_CONFIG_DIR)
+DEFAULT_EXTRAS_FILE = "{}/extras.dockerfile".format(DEFAULT_CONFIG_DIR)
+USER_HOME_DIR = "/home/{}".format(USER)
+USER_CONFIG_DIR = "{}/.config/imagesh".format(USER_HOME_DIR)
+USER_CONFIG_FILE = "{}/config.ini".format(USER_CONFIG_DIR)
+FAKE_PASSWD_FILE = "{}/.fake_passwd".format(USER_CONFIG_DIR)
+FAKE_GROUP_FILE =  "{}/.fake_group".format(USER_CONFIG_DIR)
+
+
+
+def generate_user_config():
+    """
+    Write a local config file
+    """
+    config = ConfigParser()
+    config['DEFAULT'] = {'image': 'trustworthysystems/camkes:latest',
+                         'refresh image at login': True}
+
+    try:
+        # Make the dirs as needed
+        os.makedirs(USER_CONFIG_DIR)
+    except os.error:
+        pass
+
+    with open(USER_CONFIG_FILE, 'w') as configfile:
+        config.write(configfile)
+
+    shutil.copy2(DEFAULT_EXTRAS_FILE, USER_CONFIG_DIR)
+
+
+def generate_fake_passwd_group():
+    fake_passwd = ("root:x:0:0:root:/root:/bin/bash\n"
+                   "{user}:x:{uid}:{gid}:{user}:/home/{user}:/bin/bash\n").format(user=USER, uid=UID, gid=GID)
+    fake_group = ("root:x:0:\n"
+                  "{user}:x:{gid}:\n").format(user=USER, gid=GID)
+
+    with open(FAKE_PASSWD_FILE, 'w') as f:
+        f.write(fake_passwd)
+
+    with open(FAKE_GROUP_FILE, 'w') as f:
+        f.write(fake_group)
+
+
+os.environ['TERM'] = 'xterm' # removes warning on non-tty commands
+
+cfg = ConfigParser({"USER": USER}, interpolation=ExtendedInterpolation())
+cfg.read(DEFAULT_CONFIG_FILE)
+
+if not os.path.isfile(USER_CONFIG_FILE):
+    # If the user does not have a local config file, make one
+    generate_user_config()
+
+cfg.read(USER_CONFIG_FILE)
+
+"""
+Process ini files
+"""
+refresh_img = False
+if cfg['DEFAULT']['refresh image at login'].lower() == 'true':
+    refresh_img = True
+
+welcome = """
+Welcome to the TS build server!
+
+This server uses the latest Docker images to give a build environment
+the same as what Bamboo uses!
+
+You can customise it by editing the files in /etc/imagesh/
+
+Enjoy!
+"""
+
+def p(*msg, end="\n"):
+    print(*msg, end=end, flush=True)
+
+
+p("Logging you into: " + cfg['DEFAULT']['image'])
+if refresh_img:
+    p("Refeshing image (might take a little while)...", end="")
+    subprocess.run(["podman", "pull", cfg['DEFAULT']['image']], capture_output=True)
+    p(" done")
+
+p("Checking /etc/imagesh/extra.dockerfile for any image customisations...", end="")
+build = subprocess.run(["podman", 
+                    "build", 
+                    "-f", "extras.dockerfile",
+                    "--build-arg=USER_BASE_IMG={}".format(cfg['DEFAULT']['image']),
+                    "-t", "user_img",
+                    USER_CONFIG_DIR],
+                    capture_output=False)
+p(" done")
+if build.stderr:
+    p(build.stderr)
+
+# This creates a fake passwd and group file to map in as
+# /etc/passwd and /etc/group
+generate_fake_passwd_group()
+
+p(welcome)
+
+UID_MAX=65536
+GID_MAX=65536
+UID_HIGHER_START=UID+1
+UID_HIGHER_COUNT=UID_MAX-UID 
+GID_HIGHER_START=GID+1
+GID_HIGHER_COUNT=GID_MAX-GID 
+
+subprocess.run(
+        ["podman", "run",
+            "-it",
+            "--rm",
+            "--dns", "10.13.0.9", "--dns", "10.13.0.8",
+            "-u", "{UID}:{GID}".format(UID=UID, GID=GID),
+            "--uidmap", "{UID}:0:1".format(UID=UID),
+            "--uidmap", "0:1:{UID}".format(UID=UID),
+            "--uidmap", "{UID_HIGHER_START}:{UID_HIGHER_START}:{UID_HIGHER_COUNT}".format(UID_HIGHER_START=UID_HIGHER_START, UID_HIGHER_COUNT=UID_HIGHER_COUNT),
+            "--gidmap", "{GID}:0:1".format(GID=GID),
+            "--gidmap", "0:1:{GID}".format(GID=GID),
+            "--gidmap", "{GID_HIGHER_START}:{GID_HIGHER_START}:{GID_HIGHER_COUNT}".format(GID_HIGHER_START=GID_HIGHER_START, GID_HIGHER_COUNT=GID_HIGHER_COUNT),
+            "-v", "{}:/etc/group:ro".format(FAKE_GROUP_FILE),
+            "-v", "{}:/etc/passwd:ro".format(FAKE_PASSWD_FILE),
+            "-w", "{}".format(USER_HOME_DIR),
+            "-v", "{home}/nfshome:{home}".format(home=USER_HOME_DIR),
+            "-v", "{}/.config/imagesh:/etc/imagesh".format(USER_HOME_DIR),
+            "user_img",
+            "bash",
+            ], capture_output=False)
+
+    
+print("Goodbye")
