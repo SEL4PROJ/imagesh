@@ -14,8 +14,31 @@
 ARG USER_BASE_IMG
 FROM $USER_BASE_IMG
 
-RUN mkdir -p /etc/sudoers.d \
-    && echo "%sudo   ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/nopasswd
+ARG UID
+ARG USER
+
+RUN rm -r /var/lib/apt/lists/* \
+    && dpkg --clear-avail \
+    && apt-get update -q \
+    && apt-get install -y --no-install-recommends \
+	sudo \
+    && apt-get clean autoclean \
+    && apt-get autoremove --yes \
+    && rm -rf /var/lib/{apt,dpkg,cache,log}/ \
+    && useradd -u ${UID} -G sudo ${USER} \
+    && passwd -d ${USER} \
+    # Always present the warning when using sudo
+    && echo 'Defaults        lecture_file = /etc/sudoers.lecture' >> /etc/sudoers \
+    && echo 'Defaults        lecture = always' >> /etc/sudoers \
+    && echo 'Defaults        timestamp_timeout=0' >> /etc/sudoers \
+    && echo '##################### Warning! #####################################' > /etc/sudoers.lecture \
+    && echo 'This is an ephemeral container! You can do things to it using sudo, ' >> /etc/sudoers.lecture \
+    && echo 'but when you exit, changes made outside of your home directory will ' >> /etc/sudoers.lecture \
+    && echo 'be lost.' >> /etc/sudoers.lecture \
+    && echo 'If you want your changes to be permanent, add them to the ' >> /etc/sudoers.lecture \
+    && echo '    /etc/imagesh/extras.dockerfile' >> /etc/sudoers.lecture \
+    && echo '####################################################################' >> /etc/sudoers.lecture \
+    && echo '' >> /etc/sudoers.lecture 
 # Boilerplate
 ###################################
 
@@ -29,7 +52,6 @@ RUN dpkg --clear-avail \
     && apt-get install -y --no-install-recommends \
         # Add more dependencies here
         cowsay \
-	sudo \
         vim \
     && apt-get clean autoclean \
     && apt-get autoremove --yes \
