@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import getpass
 import shutil
 import subprocess
@@ -42,20 +43,6 @@ def generate_user_config():
     shutil.copy2(DEFAULT_EXTRAS_FILE, USER_CONFIG_DIR)
 
 
-def generate_fake_passwd_group():
-    fake_passwd = ("root:x:0:0:root:/root:/bin/bash\n"
-                   "{user}:x:{uid}:{gid}:{user}:/home/{user}:/bin/bash\n").format(user=USER, uid=UID, gid=GID)
-    fake_group = ("root:x:0:\n"
-                  "{user}:x:{gid}:\n"
-                  "users:x:100:{user}\n").format(user=USER, gid=GID)
-
-    with open(FAKE_PASSWD_FILE, 'w') as f:
-        f.write(fake_passwd)
-
-    with open(FAKE_GROUP_FILE, 'w') as f:
-        f.write(fake_group)
-
-
 os.environ['TERM'] = 'xterm' # removes warning on non-tty commands
 
 cfg = ConfigParser({"USER": USER}, interpolation=ExtendedInterpolation())
@@ -86,7 +73,7 @@ Enjoy!
 """
 
 def p(*msg, end="\n"):
-    print(*msg, end=end, flush=True)
+    print(*msg, end=end, flush=True, file=sys.stderr)
 
 
 p("Logging you into: " + cfg['DEFAULT']['image'])
@@ -95,6 +82,11 @@ if refresh_img:
     subprocess.run(["podman", "pull", cfg['DEFAULT']['image']], capture_output=True)
     p(" done")
 
+"""
+Here we are building a small image on top of whatever image the user has requested.
+The image is defined in their ~/.config/imagesh/extras.dockerfile file, but that is
+mapped into them under /etc/imagesh
+"""
 p("Checking /etc/imagesh/extra.dockerfile for any image customisations...", end="")
 build = subprocess.run(["podman", 
                     "build", 
@@ -104,15 +96,15 @@ build = subprocess.run(["podman",
                     "--build-arg=USER_BASE_IMG={}".format(cfg['DEFAULT']['image']),
                     "-t", "user_img",
                     USER_CONFIG_DIR],
-                    capture_output=False)
+                    capture_output=True,
+                    encoding='utf-8')
 p(" done")
 if build.returncode != 0:
-    p("Some error occured! Check your /etc/imagesh/extras.dockerfile")
+    p("###############################################################")
+    p("An error occured processing your /etc/imagesh/extras.dockerfile")
+    p("Here is the log:")
     p(build.stderr)
-
-# This creates a fake passwd and group file to map in as
-# /etc/passwd and /etc/group
-generate_fake_passwd_group()
+    p("###############################################################")
 
 p(welcome)
 
@@ -127,6 +119,7 @@ subprocess.run(
         ["podman", "run",
             "-it",
             "--hostname", "build-container",
+            "--privileged",  # need this so the user can edit /etc/imagesh
             "--rm",
             "--dns", "10.13.0.9", "--dns", "10.13.0.8",
             "-u", "{UID}:{GID}".format(UID=UID, GID=GID),
@@ -136,11 +129,9 @@ subprocess.run(
             "--gidmap", "{GID}:0:1".format(GID=GID),
             "--gidmap", "0:1:{GID}".format(GID=GID),
             "--gidmap", "{GID_HIGHER_START}:{GID_HIGHER_START}:{GID_HIGHER_COUNT}".format(GID_HIGHER_START=GID_HIGHER_START, GID_HIGHER_COUNT=GID_HIGHER_COUNT),
-            #"-v", "{}:/etc/group:ro".format(FAKE_GROUP_FILE),
-            #"-v", "{}:/etc/passwd:ro".format(FAKE_PASSWD_FILE),
             "-w", "{}".format(USER_HOME_DIR),
             "-v", "{home}/nfshome:{home}".format(home=USER_HOME_DIR),
-            "-v", "{}/.config/imagesh:/etc/imagesh".format(USER_HOME_DIR),
+            "-v", "{}:/etc/imagesh".format(USER_CONFIG_DIR),
             "user_img",
             "bash",
             ], capture_output=False)
