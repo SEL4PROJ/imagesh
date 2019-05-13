@@ -18,8 +18,6 @@ DEFAULT_EXTRAS_FILE = "{}/extras.dockerfile".format(DEFAULT_CONFIG_DIR)
 USER_HOME_DIR = "/home/{}".format(USER)
 USER_CONFIG_DIR = "{}/.config/imagesh".format(USER_HOME_DIR)
 USER_CONFIG_FILE = "{}/config.ini".format(USER_CONFIG_DIR)
-FAKE_PASSWD_FILE = "{}/.fake_passwd".format(USER_CONFIG_DIR)
-FAKE_GROUP_FILE =  "{}/.fake_group".format(USER_CONFIG_DIR)
 
 
 
@@ -27,86 +25,116 @@ def generate_user_config():
     """
     Write a local config file
     """
-    config = ConfigParser()
-    config['DEFAULT'] = {'image': 'trustworthysystems/camkes:latest',
-                         'refresh image at login': True}
-
     try:
         # Make the dirs as needed
         os.makedirs(USER_CONFIG_DIR)
     except os.error:
         pass
 
-    with open(USER_CONFIG_FILE, 'w') as configfile:
-        config.write(configfile)
-
+    shutil.copy2(DEFAULT_CONFIG_FILE, USER_CONFIG_DIR)
     shutil.copy2(DEFAULT_EXTRAS_FILE, USER_CONFIG_DIR)
 
 
 os.environ['TERM'] = 'xterm' # removes warning on non-tty commands
 
-cfg = ConfigParser({"USER": USER}, interpolation=ExtendedInterpolation())
+cfg = ConfigParser(interpolation=ExtendedInterpolation())
 cfg.read(DEFAULT_CONFIG_FILE)
 
-if not os.path.isfile(USER_CONFIG_FILE):
-    # If the user does not have a local config file, make one
+if not os.path.isdir(USER_CONFIG_DIR):
+    # If the user does not have a local config dir, make one
     generate_user_config()
 
 cfg.read(USER_CONFIG_FILE)
 
 """
+===============================
 Process ini files
 """
-refresh_img = False
-if cfg['DEFAULT']['refresh image at login'].lower() == 'true':
-    refresh_img = True
+image = cfg['IMAGE']['image']
 
-welcome = """
-Welcome to the TS build server!
+always_refresh = cfg["IMAGE"].getboolean("always refresh image at login")
+refresh_this_time = cfg["IMAGE"].getboolean("refresh image at next login")
+refresh_img = always_refresh or refresh_this_time
 
-This server uses the latest Docker images to give a build environment
-the same as what Bamboo uses!
+cleanup_old_imgs = cfg["DEFAULT"].getboolean("cleanup old images")
 
-You can customise it by editing the files in /etc/imagesh/
+welcome = cfg["GREETING"]["welcome message"]
+display_welcome = cfg["GREETING"].getboolean("display welcome")
+display_loading = cfg["GREETING"].getboolean("display loading messages")
+display_debug = not cfg["GREETING"].getboolean("show debug output when logging in")
 
-Enjoy!
+
+if refresh_this_time:
+    # Reset refresh this time back to false
+    with open(USER_CONFIG_FILE, 'w') as f:
+        refresh_this_time = cfg["IMAGE"]["refresh image at next login"] = "False"
+        cfg.write(f)
+
+"""
+===============================
 """
 
-def p(*msg, end="\n"):
-    print(*msg, end=end, flush=True, file=sys.stderr)
+def p(*msg, end="\n", _print=True):
+    # this is a nightmare...
+    if _print:
+        print(*msg, end=end, flush=True, file=sys.stderr)
 
 
-p("Logging you into: " + cfg['DEFAULT']['image'])
+if display_loading:
+    p("Logging you into: " + image)
 if refresh_img:
-    p("Refeshing image (might take a little while)...", end="")
-    subprocess.run(["podman", "pull", cfg['DEFAULT']['image']], capture_output=True)
-    p(" done")
+    if display_loading:
+        p("Refeshing image (might take a little while)...", end="")
+    subprocess.run(["podman", "pull", image], capture_output=display_debug)
+    if display_loading:
+        p(" done")
+
+if cleanup_old_imgs:
+    old_img_ids = subprocess.run(["podman", "images", 
+                                    "--filter", 
+                                    "\"before={}\"".format(image),
+                                    "--format",
+                                    "{{.ID}}"], 
+                                    capture_output=True,
+                                    encoding='utf-8')
+    if old_img_ids.returncode == 0:
+        ids_to_clear = old_img_ids.stdout.split('\n')
+        clear_old_img = subprocess.run(["podman", "rmi", 
+                                        *ids_to_clear], 
+                                        capture_output=True,
+                                        encoding='utf-8')
+
+
 
 """
 Here we are building a small image on top of whatever image the user has requested.
 The image is defined in their ~/.config/imagesh/extras.dockerfile file, but that is
 mapped into them under /etc/imagesh
 """
-p("Checking /etc/imagesh/extra.dockerfile for any image customisations...", end="")
+if display_loading:
+    p("Checking /etc/imagesh/extra.dockerfile for any image customisations...", end="")
 build = subprocess.run(["podman", 
                     "build", 
                     "-f", "extras.dockerfile",
                     "--build-arg=USER={}".format(USER),
                     "--build-arg=UID={}".format(UID),
-                    "--build-arg=USER_BASE_IMG={}".format(cfg['DEFAULT']['image']),
+                    "--build-arg=USER_BASE_IMG={}".format(image),
                     "-t", "user_img",
                     USER_CONFIG_DIR],
-                    capture_output=True,
+                    capture_output=display_debug,
                     encoding='utf-8')
-p(" done")
+if display_loading:
+    p(" done")
 if build.returncode != 0:
     p("###############################################################")
     p("An error occured processing your /etc/imagesh/extras.dockerfile")
-    p("Here is the log:")
-    p(build.stderr)
+    if not display_debug:
+        p("Here is the log:")
+        p(build.stderr)
     p("###############################################################")
 
-p(welcome)
+if display_welcome:
+    p(welcome)
 
 UID_MAX=65536
 GID_MAX=65536
