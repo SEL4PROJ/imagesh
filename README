@@ -29,3 +29,10 @@ Now add a user to the imagesh:
 
 - Convert all the podman commands to https://github.com/debarshiray/toolbox if possible
 - Need a way to default back to bash if things go wrong 
+
+# Credits
+
+Inspired from:
+
+- https://github.com/debarshiray/toolbox
+- https://github.com/sleeepyjack/dockersh
