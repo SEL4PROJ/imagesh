@@ -25,4 +25,4 @@ done
 )
 
 # Override the ldap shell with the imagesh one
-sss_override user-add "$USER" -s /usr/local/bin/crapshell
+sss_override user-add "$USER" -s /usr/local/bin/imagesh
