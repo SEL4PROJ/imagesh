@@ -16,7 +16,7 @@ done
 
 # Make a homedir for them, and set it up
 (
-	mkdir /export/home/"$USER"
+	mkdir -p /export/home/"$USER"
 	chown "$USER":"$USER" /export/home/"$USER"
 	echo >> /etc/auto.home "$USER	:/export/home/&"
 	cd /export/home/"$USER"

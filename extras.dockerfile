@@ -52,6 +52,7 @@ RUN dpkg --clear-avail \
     && apt-get install -y --no-install-recommends \
         # Add more dependencies here
         cowsay \
+        ssh \
         vim \
     && apt-get clean autoclean \
     && apt-get autoremove --yes \
