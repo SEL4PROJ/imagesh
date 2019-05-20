@@ -157,6 +157,7 @@ subprocess.run(
             "--gidmap", "{GID}:0:1".format(GID=GID),
             "--gidmap", "0:1:{GID}".format(GID=GID),
             "--gidmap", "{GID_HIGHER_START}:{GID_HIGHER_START}:{GID_HIGHER_COUNT}".format(GID_HIGHER_START=GID_HIGHER_START, GID_HIGHER_COUNT=GID_HIGHER_COUNT),
+            "--ulimit", "nofile=256:512",  # there is talk this speeds things like 'apt update' up, but not sure...
             "-w", "{}".format(USER_HOME_DIR),
             "-v", "{home}/nfshome:{home}".format(home=USER_HOME_DIR),
             "-v", "{}:/etc/imagesh".format(USER_CONFIG_DIR),
