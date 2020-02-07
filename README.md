@@ -25,6 +25,10 @@ Now add a user to the imagesh:
     sudo /etc/imagesh/bin/add_user.sh $their_user_name
 
 
+# Note
+
+This tool is used internally within Trustworthy Systems for testing and development. It may not be ready for production use, and also may have security issues. It's largely a useful prototype!
+
 # TODO
 
 - Convert all the podman commands to https://github.com/debarshiray/toolbox if possible
