@@ -17,7 +17,7 @@ FROM $USER_BASE_IMG
 ARG UID
 ARG USER
 
-RUN rm -r /var/lib/apt/lists/* \
+RUN rm -rf /var/lib/apt/lists/* \
     && dpkg --clear-avail \
     && apt-get update -q \
     && apt-get install -y --no-install-recommends \
@@ -47,7 +47,7 @@ RUN rm -r /var/lib/apt/lists/* \
 # apt-get block
 
 RUN dpkg --clear-avail \
-    && rm -r /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/* \
     && apt-get update -q \
     && apt-get install -y --no-install-recommends \
         # Add more dependencies here
